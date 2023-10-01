@@ -18,8 +18,8 @@ namespace ByteEngine
 	class sparse_vector_iterator
 	{
 	private:
-		using bitset_t = std::bitset<_BITSET_SIZE>;
-		using bitset_vector = std::conditional_t<std::is_const<T>::value, const std::vector<bitset_t>, std::vector<bitset_t>>;
+		using bitset64 = std::bitset<_BITSET_SIZE>;
+		using bitset_vector = std::conditional_t<std::is_const<T>::value, const std::vector<bitset64>, std::vector<bitset64>>;
 
 	public:
 		using iterator_category = std::forward_iterator_tag;
@@ -58,8 +58,8 @@ namespace ByteEngine
 			for (size_t bitset_index{ _index / _BITSET_SIZE }; bitset_index < bitsets_ptr->size(); ++bitset_index)
 			{
 				size_t _bitset{ bitsets_ptr->at(bitset_index).to_ullong() };
-				size_t n_bits{ _BITSET_SIZE - 1ULL - (_index % _BITSET_SIZE) };
-				size_t mask{ ((1ULL << n_bits) - 1ULL) };
+				size_t bit_count{ _BITSET_SIZE - 1ULL - (_index % _BITSET_SIZE) };
+				size_t mask{ ((1ULL << bit_count) - 1ULL) };
 
 				_bitset &= mask;
 
@@ -102,8 +102,8 @@ namespace ByteEngine
 	class sparse_vector
 	{
 	private:
-		using bitset_t = std::bitset<_BITSET_SIZE>;
-		using bitset_vector = std::vector<bitset_t>;
+		using bitset64 = std::bitset<_BITSET_SIZE>;
+		using bitset_vector = std::vector<bitset64>;
 		using index_set = std::set<size_t>;
 		using allocator_traits = std::allocator_traits<Allocator>;
 
