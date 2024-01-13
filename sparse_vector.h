@@ -9,7 +9,7 @@
 #include <set>
 #include <type_traits>
 
-namespace ByteEngine
+namespace Byte
 {
 
 	inline static constexpr size_t _BITSET_SIZE{ 64 };
@@ -29,7 +29,7 @@ namespace ByteEngine
 		using reference = value_type&;
 
 	private:
-		pointer  data;
+		pointer data;
 		bitset_vector* bitsets_ptr;
 		size_t _index;
 
@@ -120,7 +120,7 @@ namespace ByteEngine
 		using const_iterator = sparse_vector_iterator<const T>;
 
 	private:
-		pointer data{ nullptr };
+		pointer _data{ nullptr };
 		bitset_vector bitsets;
 		index_set indices;
 		size_t _size{ 0 };
@@ -143,14 +143,14 @@ namespace ByteEngine
 		}
 
 		sparse_vector(sparse_vector&& right) noexcept
-			:data{ right.data },
+			:_data{ right._data },
 			bitsets{ std::move(right.bitsets) },
 			indices{ std::move(right.indices) },
 			_size{ right._size },
 			_capacity{ right._capacity },
 			allocator{ std::move(right.allocator) }
 		{
-			right.data = nullptr;
+			right._data = nullptr;
 			right._size = 0;
 			right._capacity = 0;
 		}
@@ -164,14 +164,14 @@ namespace ByteEngine
 		{
 			clear();
 
-			data = right.data;
+			_data = right._data;
 			bitsets = std::move(right.bitsets);
 			indices = std::move(right.indices);
 			_size = right._size;
 			_capacity = right._capacity;
 			allocator = std::move(right.allocator);
 
-			right.data = nullptr;
+			right._data = nullptr;
 			right._size = 0;
 			right._capacity = 0;
 		}
@@ -216,7 +216,7 @@ namespace ByteEngine
 				indices.erase(bitset_index);
 			}
 
-			construct(&data[index], std::move(args...));
+			construct(&_data[index], std::move(args...));
 
 			++_size;
 		}
@@ -235,7 +235,7 @@ namespace ByteEngine
 
 			if (!std::is_trivially_destructible<T>::value)
 			{
-				destroy(&data[index]);
+				destroy(&_data[index]);
 			}
 
 			--_size;
@@ -243,12 +243,12 @@ namespace ByteEngine
 
 		reference at(size_t index)
 		{
-			return data[index];
+			return _data[index];
 		}
 
 		const_reference at(size_t index) const
 		{
-			return data[index];
+			return _data[index];
 		}
 
 		reference operator[](size_t index)
@@ -289,31 +289,31 @@ namespace ByteEngine
 				}
 			}
 
-			allocator_traits::deallocate(allocator, data, _capacity);
+			allocator_traits::deallocate(allocator, _data, _capacity);
 
-			data = nullptr;
+			_data = nullptr;
 			_size = 0;
 			_capacity = 0;
 		}
 
 		iterator begin()
 		{
-			return iterator{ data, 0 , &bitsets };
+			return iterator{ _data, 0 , &bitsets };
 		}
 
 		iterator end()
 		{
-			return iterator{ data, bitsets.size() * _BITSET_SIZE, nullptr};
+			return iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr};
 		}
 
 		const_iterator begin() const
 		{
-			return const_iterator{ data, 0 , &bitsets };
+			return const_iterator{ _data, 0 , &bitsets };
 		}
 
 		const_iterator end() const
 		{
-			return const_iterator{ data, bitsets.size() * _BITSET_SIZE, nullptr };
+			return const_iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr };
 		}
 
 		sparse_vector copy() const
@@ -334,7 +334,7 @@ namespace ByteEngine
 				out_data[_begin.index()] = *_begin;
 			}
 
-			out.data = out_data;
+			out._data = out_data;
 			out._size = _size;
 			out._capacity = _capacity;
 
@@ -365,17 +365,27 @@ namespace ByteEngine
 			}
 		}
 
+		pointer data()
+		{
+			return _data;
+		}
+
+		const pointer data() const
+		{
+			return _data;
+		}
+
 	private:
 		void expand(size_t new_capacity)
 		{
-			pointer temp{ data };
+			pointer temp{ _data };
 
-			data = allocator_traits::allocate(allocator, new_capacity);
+			_data = allocator_traits::allocate(allocator, new_capacity);
 
 			for (size_t index{0}; index < _size; ++index)
 			{
 				T& item{ temp[index] };
-				construct(data + index, std::move(item));
+				construct(_data + index, std::move(item));
 				destroy(temp + index);
 			}
 
@@ -393,16 +403,16 @@ namespace ByteEngine
 
 		void shrink(size_t new_capacity)
 		{
-			pointer temp{ data };
+			pointer temp{ _data };
 
-			data = allocator_traits::allocate(allocator, new_capacity);
-
-			iterator _begin{ begin() };
+			iterator it{ begin() };
 			iterator _end{ end() };
 
-			for (; _begin != _end; ++_begin)
+			_data = allocator_traits::allocate(allocator, new_capacity);
+
+			for (; it != _end; ++it)
 			{
-				data[_begin.index()] = *_begin;
+				construct(_data + it.index(), std::move(*it));
 			}
 
 			allocator_traits::deallocate(allocator, temp, _capacity);
