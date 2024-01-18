@@ -275,9 +275,6 @@ namespace Byte
 
 		void clear()
 		{
-			indices.clear();
-			bitsets.clear();
-
 			if (!std::is_trivially_destructible<T>::value)
 			{
 				for (auto& item : *this)
@@ -285,6 +282,9 @@ namespace Byte
 					destroy(&item);
 				}
 			}
+
+			indices.clear();
+			bitsets.clear();
 
 			allocator_traits::deallocate(allocator, _data, _capacity);
 
