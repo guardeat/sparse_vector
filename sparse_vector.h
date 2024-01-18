@@ -419,12 +419,14 @@ namespace Byte
 
 			for (size_t bitset_index{ 0 }; bitset_index < new_capacity / _BITSET_SIZE; ++bitset_index)
 			{
-				indices.insert(bitset_index);
+				if (!bitsets[bitset_index].all())
+				{
+					indices.insert(bitset_index);
+				}
 				new_bitsets.push_back(bitsets[bitset_index]);
 			}
 
 			bitsets = new_bitsets;
-
 			_capacity = new_capacity;
 		}
 
