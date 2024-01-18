@@ -37,7 +37,7 @@ namespace Byte
 		sparse_vector_iterator(T* data, size_t _index, bitset_vector* bitsets)
 			:data{ data }, _index{ _index }, bitsets_ptr{ bitsets }
 		{
-			if (bitsets_ptr && !bitsets_ptr->at(_index/ _BITSET_SIZE).test(_BITSET_SIZE - 1ULL - _index% _BITSET_SIZE))
+			if (bitsets_ptr && !bitsets_ptr->at(_index / _BITSET_SIZE).test(_BITSET_SIZE - 1ULL - _index % _BITSET_SIZE))
 			{
 				++(*this);
 			}
@@ -187,38 +187,34 @@ namespace Byte
 			{
 				expand(2 * _capacity);
 			}
-			
+
 			size_t bitset_index{ *indices.begin() };
 			size_t index{ static_cast<size_t>(std::countl_zero(~bitsets[bitset_index].to_ullong())) };
 
 			index += bitset_index * _BITSET_SIZE;
 
-			emplace(index, std::move(value));
+			_emplace(index, std::move(value));
 
 			return index;
 		}
 
+		void insert(size_t index, const T& value)
+		{
+			insert(index, T{ value });
+		}
+
 		void insert(size_t index, T&& value)
 		{
-			emplace(index, std::move(value));
+			_emplace(index, std::move(value));
 		}
 
 		template<class... Args>
-		void emplace(size_t index, Args&&... args)
+		[[maybe_unused]] size_t emplace(Args&&... args)
 		{
-			size_t bitset_index{ index / _BITSET_SIZE };
-			size_t bit_index{ index % _BITSET_SIZE };
+			size_t index{ free_index() };
+			_emplace(index, std::move(args)...);
 
-			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index);
-
-			if (bitsets[bitset_index].all())
-			{
-				indices.erase(bitset_index);
-			}
-
-			construct(&_data[index], std::move(args...));
-
-			++_size;
+			return index;
 		}
 
 		void erase(size_t index)
@@ -231,7 +227,7 @@ namespace Byte
 				indices.insert(bitset_index);
 			}
 
-			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index,false);
+			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index, false);
 
 			if (!std::is_trivially_destructible<T>::value)
 			{
@@ -303,7 +299,7 @@ namespace Byte
 
 		iterator end()
 		{
-			return iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr};
+			return iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr };
 		}
 
 		const_iterator begin() const
@@ -382,14 +378,14 @@ namespace Byte
 
 			_data = allocator_traits::allocate(allocator, new_capacity);
 
-			for (size_t index{0}; index < _size; ++index)
+			for (size_t index{ 0 }; index < _size; ++index)
 			{
 				T& item{ temp[index] };
 				construct(_data + index, std::move(item));
 				destroy(temp + index);
 			}
 
-			allocator_traits::deallocate(allocator,temp,_capacity);
+			allocator_traits::deallocate(allocator, temp, _capacity);
 
 			for (size_t bitset_index{ _capacity / _BITSET_SIZE }; bitset_index < new_capacity / _BITSET_SIZE; ++bitset_index)
 			{
@@ -432,9 +428,42 @@ namespace Byte
 		}
 
 		template<class... Args>
+		void _emplace(size_t index, Args&&... args)
+		{
+			size_t bitset_index{ index / _BITSET_SIZE };
+			size_t bit_index{ index % _BITSET_SIZE };
+
+			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index);
+
+			if (bitsets[bitset_index].all())
+			{
+				indices.erase(bitset_index);
+			}
+
+			construct(&_data[index], std::move(args)...);
+
+			++_size;
+		}
+
+		size_t free_index()
+		{
+			if (indices.empty())
+			{
+				expand(2 * _capacity);
+			}
+
+			size_t bitset_index{ *indices.begin() };
+			size_t index{ static_cast<size_t>(std::countl_zero(~bitsets[bitset_index].to_ullong())) };
+
+			index += bitset_index * _BITSET_SIZE;
+
+			return index;
+		}
+
+		template<class... Args>
 		void construct(T* address, Args&&... args)
 		{
-			allocator_traits::construct(allocator, address, std::move(args...));
+			allocator_traits::construct(allocator, address, std::move(args)...);
 		}
 
 		void destroy(T* address)
