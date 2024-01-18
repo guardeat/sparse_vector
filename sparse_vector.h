@@ -55,11 +55,12 @@ namespace Byte
 
 		sparse_vector_iterator& operator++()
 		{
+			++_index;
 			for (size_t bitset_index{ _index / _BITSET_SIZE }; bitset_index < bitsets_ptr->size(); ++bitset_index)
 			{
 				size_t _bitset{ bitsets_ptr->at(bitset_index).to_ullong() };
 				size_t bit_count{ _BITSET_SIZE - 1ULL - (_index % _BITSET_SIZE) };
-				size_t mask{ ((1ULL << bit_count) - 1ULL) };
+				size_t mask{ ((1ULL << bit_count)) };
 
 				_bitset &= mask;
 
