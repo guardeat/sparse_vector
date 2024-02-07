@@ -286,11 +286,17 @@ namespace Byte
 			indices.clear();
 			bitsets.clear();
 
-			allocator_traits::deallocate(allocator, _data, _capacity);
+			indices.insert(0);
+			bitsets.emplace_back();
 
-			_data = nullptr;
+			if (_capacity != _BITSET_SIZE)
+			{
+				allocator_traits::deallocate(allocator, _data, _capacity);
+				_data = allocator_traits::allocate(allocator, _BITSET_SIZE);
+				_capacity = _BITSET_SIZE;
+			}
+
 			_size = 0;
-			_capacity = 0;
 		}
 
 		iterator begin()
