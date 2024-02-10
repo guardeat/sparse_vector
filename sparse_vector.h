@@ -378,6 +378,11 @@ namespace Byte
 			return _data;
 		}
 
+		bool test(size_t index) const
+		{
+			return bitsets[index / 64].test(index % 64);
+		}
+
 	private:
 		void expand(size_t new_capacity)
 		{
