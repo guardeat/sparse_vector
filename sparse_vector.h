@@ -59,12 +59,12 @@ namespace Byte
 			for (size_t bitset_index{ _index / _BITSET_SIZE }; bitset_index < bitsets_ptr->size(); ++bitset_index)
 			{
 				size_t _bitset{ bitsets_ptr->at(bitset_index).to_ullong() };
-				size_t bit_count{ _BITSET_SIZE - 1ULL - (_index % _BITSET_SIZE) };
-				size_t mask{ ((1ULL << bit_count)) };
+				size_t bit_count{ _index % 64 };
+				size_t mask{ bit_count == 0 ? ((1ULL << _BITSET_SIZE) - 1) : (1ULL << bit_count) };
 
 				_bitset &= mask;
 
-				size_t count{ static_cast<size_t>(std::countl_zero(_bitset)) };
+				size_t count{ static_cast<size_t>(std::countr_zero(_bitset)) };
 
 				if (count != _BITSET_SIZE)
 				{
@@ -184,15 +184,7 @@ namespace Byte
 
 		[[maybe_unused]] size_t push(T&& value)
 		{
-			if (indices.empty())
-			{
-				expand(2 * _capacity);
-			}
-
-			size_t bitset_index{ *indices.begin() };
-			size_t index{ static_cast<size_t>(std::countl_zero(~bitsets[bitset_index].to_ullong())) };
-
-			index += bitset_index * _BITSET_SIZE;
+			size_t index{ free_index() };
 
 			_emplace(index, std::move(value));
 
@@ -228,7 +220,7 @@ namespace Byte
 				indices.insert(bitset_index);
 			}
 
-			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index, false);
+			bitsets[bitset_index].set(bit_index, false);
 
 			if (!std::is_trivially_destructible<T>::value)
 			{
@@ -380,7 +372,7 @@ namespace Byte
 
 		bool test(size_t index) const
 		{
-			return bitsets[index / 64].test(_BITSET_SIZE -1ULL - index % 64);
+			return bitsets[index / 64].test(index % 64);
 		}
 
 	private:
@@ -447,7 +439,7 @@ namespace Byte
 			size_t bitset_index{ index / _BITSET_SIZE };
 			size_t bit_index{ index % _BITSET_SIZE };
 
-			bitsets[bitset_index].set(_BITSET_SIZE - 1ULL - bit_index);
+			bitsets[bitset_index].set(bit_index);
 
 			if (bitsets[bitset_index].all())
 			{
@@ -467,7 +459,7 @@ namespace Byte
 			}
 
 			size_t bitset_index{ *indices.begin() };
-			size_t index{ static_cast<size_t>(std::countl_zero(~bitsets[bitset_index].to_ullong())) };
+			size_t index{ static_cast<size_t>(std::countr_zero(~bitsets[bitset_index].to_ullong())) };
 
 			index += bitset_index * _BITSET_SIZE;
 
