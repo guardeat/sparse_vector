@@ -60,7 +60,7 @@ namespace Byte
 			{
 				size_t _bitset{ bitsets_ptr->at(bitset_index).to_ullong() };
 				size_t bit_count{ _index % 64 };
-				size_t mask{ bit_count == 0 ? ((1ULL << _BITSET_SIZE) - 1) : (1ULL << bit_count) };
+				size_t mask{ bit_count == 0 ? std::numeric_limits<uint64_t>::max() : (1ULL << bit_count)};
 
 				_bitset &= mask;
 
