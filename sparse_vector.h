@@ -8,21 +8,21 @@
 
 namespace Byte {
 
-	template<typename SparseVector, bool IsConst>
+	template<typename _SparseVector, bool _IsConst>
 	class sparse_vector_iterator {
 	public:
 		using iterator_category = std::forward_iterator_tag;
-		using value_type = typename SparseVector::value_type;
-		using reference = std::conditional_t<IsConst, const value_type&, value_type&>;
-		using pointer = std::conditional_t<IsConst, const value_type*, value_type*>;
+		using value_type = typename _SparseVector::value_type;
+		using reference = std::conditional_t<_IsConst, const value_type&, value_type&>;
+		using pointer = std::conditional_t<_IsConst, const value_type*, value_type*>;
 
 		using const_reference = const value_type&;
 		using const_pointer = const value_type*;
 
 		using map_type = std::conditional_t<
-			IsConst, 
-			const typename SparseVector::map_type, 
-			typename SparseVector::map_type>;
+			_IsConst,
+			const typename _SparseVector::map_type,
+			typename _SparseVector::map_type>;
 		using bitset = typename map_type::mapped_type;
 
 		inline static constexpr size_t CHUNK_SIZE{ 64 };
@@ -39,7 +39,7 @@ namespace Byte {
 
 		sparse_vector_iterator(pointer elements, size_t capacity, map_type& control, size_t start) :
 			_elements(elements), _capacity(capacity), _control(&control), _index{ start } {
-			auto it{ _control->find(start/CHUNK_SIZE) };
+			auto it{ _control->find(start / CHUNK_SIZE) };
 			if (it != _control->end()) {
 				_cache = it->second;
 				if (!_cache.test(start % CHUNK_SIZE)) {
@@ -58,15 +58,15 @@ namespace Byte {
 		reference operator*() const { return _elements[_index]; }
 		pointer operator->() const { return _elements + _index; }
 
-		sparse_vector_iterator& operator++() { 
-			next_index(); 
-			return *this; 
+		sparse_vector_iterator& operator++() {
+			next_index();
+			return *this;
 		}
 
-		sparse_vector_iterator operator++(int) { 
-			auto tmp{ *this }; 
-			next_index(); 
-			return tmp; 
+		sparse_vector_iterator operator++(int) {
+			auto tmp{ *this };
+			next_index();
+			return tmp;
 		}
 
 		auto operator<=>(const sparse_vector_iterator& other) const {
@@ -78,7 +78,7 @@ namespace Byte {
 		bool operator==(const sparse_vector_iterator& other) const {
 			return _elements == other._elements && _index == other._index;
 		}
-		
+
 		size_t index() const {
 			return _index;
 		}
@@ -92,13 +92,13 @@ namespace Byte {
 
 			if (bit_index == 0) {
 				auto it{ _control->find(chunk_index) };
-				if (it == _control->end()) { 
+				if (it == _control->end()) {
 					return;
 				}
 				_cache = it->second;
 			}
 
-			size_t mask{ _cache.to_ullong() & (~0ULL << bit_index)};
+			size_t mask{ _cache.to_ullong() & (~0ULL << bit_index) };
 
 			if (mask) {
 				size_t leading_zeros{ static_cast<size_t>(std::countr_zero(mask)) };
@@ -125,16 +125,16 @@ namespace Byte {
 		}
 	};
 
-	template<typename Type, typename Allocator = std::allocator<Type>>
+	template<typename _Type, typename _Allocator = std::allocator<_Type>>
 	class sparse_vector {
 	public:
-		using value_type = Type;
-		using allocator_type = Allocator;
+		using value_type = _Type;
+		using allocator_type = _Allocator;
 		using size_type = size_t;
 		using reference = value_type&;
 		using const_reference = const value_type&;
-		using pointer = typename std::allocator_traits<Allocator>::pointer;
-		using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+		using pointer = typename std::allocator_traits<_Allocator>::pointer;
+		using const_pointer = typename std::allocator_traits<_Allocator>::const_pointer;
 
 		using iterator = sparse_vector_iterator<sparse_vector, false>;
 		using const_iterator = sparse_vector_iterator<sparse_vector, true>;
@@ -144,22 +144,22 @@ namespace Byte {
 
 	private:
 		map_type _control;
-		Type* _elements;
+		pointer _elements;
 		size_t _size;
 		size_t _capacity;
-		Allocator _alloc;
+		allocator_type _alloc;
 
-		using allocator_traits = std::allocator_traits<Allocator>;
+		using allocator_traits = std::allocator_traits<_Allocator>;
 
 	public:
-		sparse_vector() 
-			:_size{ 0 }, _capacity{CHUNK_SIZE} {
+		sparse_vector()
+			:_size{ 0 }, _capacity{ CHUNK_SIZE } {
 			_elements = allocator_traits::allocate(_alloc, _capacity);
 			_control.emplace(0, 0);
 		}
 
 		~sparse_vector() {
-			if constexpr (!std::is_nothrow_destructible_v<Type>) {
+			if constexpr (!std::is_trivially_destructible_v<value_type>) {
 				for (auto it{ begin() }; it < end(); ++it) {
 					allocator_traits::destroy(_alloc, _elements + it.index());
 				}
@@ -168,11 +168,11 @@ namespace Byte {
 			allocator_traits::deallocate(_alloc, _elements, _capacity);
 		}
 
-		[[maybe_unused]] size_t push(const Type& value) {
+		[[maybe_unused]] size_t push(const reference value) {
 			return emplace(value);
 		}
 
-		[[maybe_unused]] size_t push(Type&& value) {
+		[[maybe_unused]] size_t push(value_type&& value) {
 			return emplace(std::move(value));
 		}
 
@@ -182,7 +182,7 @@ namespace Byte {
 				reserve(_capacity * 2);
 			}
 			size_t index{ next_index() };
-			
+
 			allocator_traits::construct(_alloc, _elements + index, std::forward<Args>(args)...);
 
 			++_size;
@@ -190,19 +190,19 @@ namespace Byte {
 			return index;
 		}
 
-		Type& at(size_t index) {
+		reference at(size_t index) {
 			return _elements[index];
 		}
 
-		const Type& at(size_t index) const {
+		const reference at(size_t index) const {
 			return _elements[index];
 		}
 
-		Type& operator[](size_t index) {
+		reference operator[](size_t index) {
 			return _elements[index];
 		}
 
-		const Type& operator[](size_t index) const {
+		const reference operator[](size_t index) const {
 			return _elements[index];
 		}
 
@@ -222,19 +222,19 @@ namespace Byte {
 				_control.emplace(chunk_index, new_chunk);
 			}
 
-			if constexpr (!std::is_trivially_destructible_v<Type>) {
+			if constexpr (!std::is_trivially_destructible_v<value_type>) {
 				allocator_traits::destroy(_alloc, _elements + index);
 			}
 
 			--_size;
 		}
 
-		iterator begin() { 
-			return iterator(_elements, _capacity, _control, 0); 
+		iterator begin() {
+			return iterator(_elements, _capacity, _control, 0);
 		}
 
-		iterator end() { 
-			return iterator(_elements, _capacity, _control, _capacity); 
+		iterator end() {
+			return iterator(_elements, _capacity, _control, _capacity);
 		}
 
 		const_iterator begin() const {
@@ -267,14 +267,14 @@ namespace Byte {
 				new_capacity += CHUNK_SIZE - (new_capacity % CHUNK_SIZE);
 			}
 
-			Type* new_elements{ allocator_traits::allocate(_alloc, new_capacity) };
+			pointer new_elements{ allocator_traits::allocate(_alloc, new_capacity) };
 
 			for (auto it{ begin() }; it < end(); ++it) {
 				allocator_traits::construct(
 					_alloc,
 					new_elements + it.index(),
 					std::move(_elements[it.index()]));
-				if constexpr (!std::is_trivially_destructible_v<Type>) {
+				if constexpr (!std::is_trivially_destructible_v<value_type>) {
 					allocator_traits::destroy(_alloc, _elements + it.index());
 				}
 			}
@@ -296,7 +296,7 @@ namespace Byte {
 		size_t next_index() {
 			auto it{ _control.begin() };
 
-			size_t bit_index{ 
+			size_t bit_index{
 				static_cast<size_t>(CHUNK_SIZE - std::countl_zero(it->second.to_ullong())) };
 			it->second.set(bit_index);
 
