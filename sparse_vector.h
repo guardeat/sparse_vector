@@ -1,415 +1,312 @@
 #pragma once
 
+#include <map>
 #include <bitset>
-#include <memory>
 #include <vector>
 #include <bit>
-#include <limits>
-#include <set>
-#include <type_traits>
+#include <compare>
 
 namespace Byte {
 
-	inline static constexpr size_t _BITSET_SIZE{ 64 };
-
-	template<typename T>
+	template<typename SparseVector, bool IsConst>
 	class sparse_vector_iterator {
-	private:
-		using bitset64 = std::bitset<_BITSET_SIZE>;
-		using bitset_vector = std::conditional_t<std::is_const<T>::value, const std::vector<bitset64>, std::vector<bitset64>>;
-
 	public:
 		using iterator_category = std::forward_iterator_tag;
-		using value_type = T;
-		using difference_type = std::ptrdiff_t;
-		using pointer = T*;
-		using reference = value_type&;
+		using value_type = typename SparseVector::value_type;
+		using reference = std::conditional_t<IsConst, const value_type&, value_type&>;
+		using pointer = std::conditional_t<IsConst, const value_type*, value_type*>;
+
+		using const_reference = const value_type&;
+		using const_pointer = const value_type*;
+
+		using map_type = std::conditional_t<
+			IsConst, 
+			const typename SparseVector::map_type, 
+			typename SparseVector::map_type>;
+		using bitset = typename map_type::mapped_type;
+
+		inline static constexpr size_t CHUNK_SIZE{ 64 };
 
 	private:
-		pointer data;
-		bitset_vector* bitsets_ptr;
-		size_t _index;
+		pointer _elements{ nullptr };
+		size_t _capacity{ 0 };
+		map_type* _control{ nullptr };
+		size_t _index{ 0 };
+		bitset _cache{};
 
 	public:
-		sparse_vector_iterator(T* data, size_t _index, bitset_vector* bitsets)
-			:data{ data }, _index{ _index }, bitsets_ptr{ bitsets } {
-			if (bitsets_ptr && !bitsets_ptr->at(_index / _BITSET_SIZE).test(_index % _BITSET_SIZE)) {
-				++(*this);
-			}
-		}
+		sparse_vector_iterator() = default;
 
-		reference operator*() {
-			return data[_index];
-		}
-
-		pointer operator->() {
-			return data + _index;
-		}
-
-		sparse_vector_iterator& operator++() {
-			++_index;
-			for (size_t bitset_index{ _index / _BITSET_SIZE }; bitset_index < bitsets_ptr->size(); ++bitset_index) {
-				size_t _bitset{ bitsets_ptr->at(bitset_index).to_ullong() };
-				size_t bit_count{ _index % 64 };
-				size_t mask{ bit_count == 0 ? std::numeric_limits<uint64_t>::max() : (1ULL << bit_count) };
-
-				_bitset &= mask;
-
-				size_t count{ static_cast<size_t>(std::countr_zero(_bitset)) };
-
-				if (count != _BITSET_SIZE) {
-					_index = bitset_index * _BITSET_SIZE + count;
-					break;
+		sparse_vector_iterator(pointer elements, size_t capacity, map_type& control, size_t start) :
+			_elements(elements), _capacity(capacity), _control(&control), _index{ start } {
+			auto it{ _control->find(start/CHUNK_SIZE) };
+			if (it != _control->end()) {
+				_cache = it->second;
+				if (!_cache.test(start % CHUNK_SIZE)) {
+					next_index();
 				}
-				_index += _BITSET_SIZE - _index % _BITSET_SIZE;
 			}
-
-			return *this;
+			else {
+				_cache.set();
+			}
 		}
 
-		sparse_vector_iterator operator++(int) {
-			++(*this);
-			return sparse_vector_iterator{ *this };
+		sparse_vector_iterator(const sparse_vector_iterator&) = default;
+
+		sparse_vector_iterator& operator=(const sparse_vector_iterator&) = default;
+
+		reference operator*() const { return _elements[_index]; }
+		pointer operator->() const { return _elements + _index; }
+
+		sparse_vector_iterator& operator++() { 
+			next_index(); 
+			return *this; 
 		}
 
-		bool operator==(const sparse_vector_iterator& left) const {
-			return _index == left._index;
+		sparse_vector_iterator operator++(int) { 
+			auto tmp{ *this }; 
+			next_index(); 
+			return tmp; 
 		}
 
-		bool operator!=(const sparse_vector_iterator& left) const {
-			return _index != left._index;
+		auto operator<=>(const sparse_vector_iterator& other) const {
+			if (_elements != other._elements)
+				return _elements <=> other._elements;
+			return _index <=> other._index;
 		}
 
+		bool operator==(const sparse_vector_iterator& other) const {
+			return _elements == other._elements && _index == other._index;
+		}
+		
 		size_t index() const {
 			return _index;
 		}
+
+	private:
+		void next_index() {
+			++_index;
+
+			size_t bit_index{ _index % CHUNK_SIZE };
+			size_t chunk_index{ _index / CHUNK_SIZE };
+
+			if (bit_index == 0) {
+				auto it{ _control->find(chunk_index) };
+				if (it == _control->end()) { 
+					return;
+				}
+				_cache = it->second;
+			}
+
+			size_t mask{ _cache.to_ullong() & (~0ULL << bit_index)};
+
+			if (mask) {
+				size_t leading_zeros{ static_cast<size_t>(std::countr_zero(mask)) };
+				_index = chunk_index * CHUNK_SIZE + leading_zeros;
+				return;
+			}
+
+			for (++chunk_index; chunk_index < (_capacity + CHUNK_SIZE - 1) / CHUNK_SIZE; ++chunk_index) {
+				_index += CHUNK_SIZE - bit_index;
+				auto it{ _control->find(chunk_index) };
+				if (it == _control->end()) {
+					return;
+				}
+				_cache = it->second;
+
+				if (_cache.to_ullong()) {
+					size_t leading_zeros{ static_cast<size_t>(std::countr_zero(_cache.to_ullong())) };
+					_index = chunk_index * CHUNK_SIZE + leading_zeros;
+					return;
+				}
+			}
+
+			_index = _capacity;
+		}
 	};
 
-	template<typename T, typename Allocator = std::allocator<T>>
+	template<typename Type, typename Allocator = std::allocator<Type>>
 	class sparse_vector {
+	public:
+		using value_type = Type;
+		using allocator_type = Allocator;
+		using size_type = size_t;
+		using reference = value_type&;
+		using const_reference = const value_type&;
+		using pointer = typename std::allocator_traits<Allocator>::pointer;
+		using const_pointer = typename std::allocator_traits<Allocator>::const_pointer;
+
+		using iterator = sparse_vector_iterator<sparse_vector, false>;
+		using const_iterator = sparse_vector_iterator<sparse_vector, true>;
+
+		inline static constexpr size_t CHUNK_SIZE{ 64 };
+		using map_type = std::map<size_t, std::bitset<CHUNK_SIZE>>;
+
 	private:
-		using bitset64 = std::bitset<_BITSET_SIZE>;
-		using bitset_vector = std::vector<bitset64>;
-		using index_set = std::set<size_t>;
+		map_type _control;
+		Type* _elements;
+		size_t _size;
+		size_t _capacity;
+		Allocator _alloc;
+
 		using allocator_traits = std::allocator_traits<Allocator>;
 
 	public:
-		using value_type = T;
-		using allocator_type = Allocator;
-		using pointer = typename allocator_traits::pointer;
-		using const_pointer = typename allocator_traits::const_pointer;
-		using reference = T&;
-		using const_reference = const T&;
-		using size_type = typename allocator_traits::size_type;
-		using difference_type = typename allocator_traits::difference_type;
-		using iterator = sparse_vector_iterator<T>;
-		using const_iterator = sparse_vector_iterator<const T>;
+		sparse_vector() 
+			:_size{ 0 }, _capacity{CHUNK_SIZE} {
+			_elements = allocator_traits::allocate(_alloc, _capacity);
+			_control.emplace(0, 0);
+		}
 
-	private:
-		pointer _data{ nullptr };
-		bitset_vector bitsets;
-		index_set indices;
-		size_t _size{ 0 };
-		size_t _capacity{ 0 };
-		allocator_type allocator;
-
-	public:
-		sparse_vector(size_t initial_capacity = _BITSET_SIZE) {
-			if (initial_capacity % _BITSET_SIZE != 0) {
-				initial_capacity += _BITSET_SIZE - (initial_capacity % _BITSET_SIZE);
+		~sparse_vector() {
+			if constexpr (!std::is_nothrow_destructible_v<Type>) {
+				for (auto it{ begin() }; it < end(); ++it) {
+					allocator_traits::destroy(_alloc, _elements + it.index());
+				}
 			}
-			expand(initial_capacity);
+
+			allocator_traits::deallocate(_alloc, _elements, _capacity);
 		}
 
-		sparse_vector(const sparse_vector& left)
-			:sparse_vector{ left.copy() } {
+		[[maybe_unused]] size_t push(const Type& value) {
+			return emplace(value);
 		}
 
-		sparse_vector(sparse_vector&& right) noexcept
-			:_data{ right._data },
-			bitsets{ std::move(right.bitsets) },
-			indices{ std::move(right.indices) },
-			_size{ right._size },
-			_capacity{ right._capacity },
-			allocator{ std::move(right.allocator) } {
-			right._data = nullptr;
-			right._size = 0;
-			right._capacity = 0;
+		[[maybe_unused]] size_t push(Type&& value) {
+			return emplace(std::move(value));
 		}
 
-		sparse_vector& operator=(const sparse_vector left) {
-			(*this) = left.copy();
-		}
-
-		sparse_vector& operator=(sparse_vector&& right) noexcept {
-			clear();
-
-			_data = right._data;
-			bitsets = std::move(right.bitsets);
-			indices = std::move(right.indices);
-			_size = right._size;
-			_capacity = right._capacity;
-			allocator = std::move(right.allocator);
-
-			right._data = nullptr;
-			right._size = 0;
-			right._capacity = 0;
-		}
-
-		[[maybe_unused]] size_t push(const T& value) {
-			return push(T{ value });
-		}
-
-		[[maybe_unused]] size_t push(T&& value) {
-			size_t index{ free_index() };
-
-			_emplace(index, std::move(value));
-
-			return index;
-		}
-
-		void insert(size_t index, const T& value) {
-			insert(index, T{ value });
-		}
-
-		void insert(size_t index, T&& value) {
-			_emplace(index, std::move(value));
-		}
-
-		template<class... Args>
+		template<typename... Args>
 		[[maybe_unused]] size_t emplace(Args&&... args) {
-			size_t index{ free_index() };
-			_emplace(index, std::move(args)...);
+			if (_size == _capacity) {
+				reserve(_capacity * 2);
+			}
+			size_t index{ next_index() };
+			
+			allocator_traits::construct(_alloc, _elements + index, std::forward<Args>(args)...);
+
+			++_size;
 
 			return index;
+		}
+
+		Type& at(size_t index) {
+			return _elements[index];
+		}
+
+		const Type& at(size_t index) const {
+			return _elements[index];
+		}
+
+		Type& operator[](size_t index) {
+			return _elements[index];
+		}
+
+		const Type& operator[](size_t index) const {
+			return _elements[index];
 		}
 
 		void erase(size_t index) {
-			size_t bitset_index{ index / _BITSET_SIZE };
-			size_t bit_index{ index % _BITSET_SIZE };
+			size_t chunk_index{ index / CHUNK_SIZE };
+			size_t bit_index{ index % CHUNK_SIZE };
 
-			if (bitsets[bitset_index].all())
-			{
-				indices.insert(bitset_index);
+			auto it{ _control.find(chunk_index) };
+
+			if (it != _control.end()) {
+				it->second.reset(bit_index);
+			}
+			else {
+				std::bitset<CHUNK_SIZE> new_chunk;
+				new_chunk.set();
+				new_chunk.set(bit_index, false);
+				_control.emplace(chunk_index, new_chunk);
 			}
 
-			bitsets[bitset_index].set(bit_index, false);
-
-			if (!std::is_trivially_destructible<T>::value)
-			{
-				destroy(&_data[index]);
+			if constexpr (!std::is_trivially_destructible_v<Type>) {
+				allocator_traits::destroy(_alloc, _elements + index);
 			}
 
 			--_size;
 		}
 
-		reference at(size_t index) {
-			return _data[index];
+		iterator begin() { 
+			return iterator(_elements, _capacity, _control, 0); 
 		}
 
-		const_reference at(size_t index) const {
-			return _data[index];
+		iterator end() { 
+			return iterator(_elements, _capacity, _control, _capacity); 
 		}
 
-		reference operator[](size_t index) {
-			return at(index);
+		const_iterator begin() const {
+			return const_iterator(_elements, _capacity, _control, 0);
 		}
 
-		const_reference operator[](size_t index) const {
-			return at(index);
+		const_iterator end() const {
+			return const_iterator(_elements, _capacity, _control, _capacity);
 		}
 
 		size_t size() const {
 			return _size;
 		}
 
-		bool empty() const {
-			return _size == 0;
-		}
-
-		size_t capacity() const {
-			return _capacity;
-		}
-
 		void clear() {
-			if (!std::is_trivially_destructible<T>::value) {
-				for (auto& item : *this) {
-					destroy(&item);
-				}
-			}
-
-			indices.clear();
-			bitsets.clear();
-
-			indices.insert(0);
-			bitsets.emplace_back();
-
-			if (_capacity != _BITSET_SIZE) {
-				allocator_traits::deallocate(allocator, _data, _capacity);
-				_data = allocator_traits::allocate(allocator, _BITSET_SIZE);
-				_capacity = _BITSET_SIZE;
-			}
-
+			allocator_traits::deallocate(_alloc, _elements, _capacity);
+			_capacity = CHUNK_SIZE;
+			_elements = allocator_traits::allocate(_alloc, _capacity);
 			_size = 0;
+			_control.clear();
+			_control.emplace(0, 0);
 		}
 
-		iterator begin() {
-			return iterator{ _data, 0 , &bitsets };
-		}
-
-		iterator end() {
-			return iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr };
-		}
-
-		const_iterator begin() const {
-			return const_iterator{ _data, 0 , &bitsets };
-		}
-
-		const_iterator end() const {
-			return const_iterator{ _data, bitsets.size() * _BITSET_SIZE, nullptr };
-		}
-
-		sparse_vector copy() const {
-			sparse_vector out{ 0 };
-
-			out.bitsets = bitsets;
-			out.indices = indices;
-			out.allocator = allocator;
-
-			pointer out_data{ allocator_traits::allocate(out.allocator, _capacity) };
-
-			const_iterator _begin{ begin() };
-			const_iterator _end{ end() };
-
-			for (; _begin != _end; ++_begin) {
-				out_data[_begin.index()] = *_begin;
-			}
-
-			out._data = out_data;
-			out._size = _size;
-			out._capacity = _capacity;
-
-			return out;
-		}
-
-		void shrink_to_fit() {
-			if (empty()) {
-				clear();
+		void reserve(size_t new_capacity) {
+			if (new_capacity <= _capacity) {
 				return;
 			}
 
-			size_t new_capacity{ _capacity };
-			for (size_t bitset_index{ bitsets.size() - 1 }; bitset_index > 0; --bitset_index) {
-				if (bitsets[bitset_index].any()) {
-					break;
+			if (new_capacity % CHUNK_SIZE != 0) {
+				new_capacity += CHUNK_SIZE - (new_capacity % CHUNK_SIZE);
+			}
+
+			Type* new_elements{ allocator_traits::allocate(_alloc, new_capacity) };
+
+			for (auto it{ begin() }; it < end(); ++it) {
+				allocator_traits::construct(
+					_alloc,
+					new_elements + it.index(),
+					std::move(_elements[it.index()]));
+				if constexpr (!std::is_trivially_destructible_v<Type>) {
+					allocator_traits::destroy(_alloc, _elements + it.index());
 				}
-				new_capacity -= _BITSET_SIZE;
 			}
 
-			if (new_capacity != _capacity) {
-				shrink(new_capacity);
+			allocator_traits::deallocate(_alloc, _elements, _capacity);
+
+			size_t old_chunk_count{ _capacity / CHUNK_SIZE };
+			size_t new_chunk_count{ new_capacity / CHUNK_SIZE };
+
+			_elements = new_elements;
+			_capacity = new_capacity;
+
+			for (size_t chunk_index{ old_chunk_count }; chunk_index < new_chunk_count; ++chunk_index) {
+				_control.emplace(chunk_index, 0);
 			}
-		}
-
-		pointer data() {
-			return _data;
-		}
-
-		const pointer data() const {
-			return _data;
-		}
-
-		bool test(size_t index) const {
-			return bitsets[index / 64].test(index % 64);
 		}
 
 	private:
-		void expand(size_t new_capacity) {
-			pointer temp{ _data };
+		size_t next_index() {
+			auto it{ _control.begin() };
 
-			_data = allocator_traits::allocate(allocator, new_capacity);
+			size_t bit_index{ 
+				static_cast<size_t>(CHUNK_SIZE - std::countl_zero(it->second.to_ullong())) };
+			it->second.set(bit_index);
 
-			for (size_t index{ 0 }; index < _size; ++index) {
-				T& item{ temp[index] };
-				construct(_data + index, std::move(item));
-				destroy(temp + index);
+			size_t chunk_index{ it->first };
+
+			if (it->second.all()) {
+				_control.erase(it);
 			}
 
-			allocator_traits::deallocate(allocator, temp, _capacity);
-
-			for (size_t bitset_index{ _capacity / _BITSET_SIZE }; bitset_index < new_capacity / _BITSET_SIZE; ++bitset_index) {
-				indices.insert(bitset_index);
-			}
-
-			bitsets.resize(new_capacity / _BITSET_SIZE);
-
-			_capacity = new_capacity;
-		}
-
-		void shrink(size_t new_capacity) {
-			pointer temp{ _data };
-
-			iterator it{ begin() };
-			iterator _end{ end() };
-
-			_data = allocator_traits::allocate(allocator, new_capacity);
-
-			for (; it != _end; ++it) {
-				construct(_data + it.index(), std::move(*it));
-			}
-
-			allocator_traits::deallocate(allocator, temp, _capacity);
-
-			indices.clear();
-			bitset_vector new_bitsets;
-
-			for (size_t bitset_index{ 0 }; bitset_index < new_capacity / _BITSET_SIZE; ++bitset_index) {
-				if (!bitsets[bitset_index].all()) {
-					indices.insert(bitset_index);
-				}
-				new_bitsets.push_back(bitsets[bitset_index]);
-			}
-
-			bitsets = new_bitsets;
-			_capacity = new_capacity;
-		}
-
-		template<class... Args>
-		void _emplace(size_t index, Args&&... args) {
-			size_t bitset_index{ index / _BITSET_SIZE };
-			size_t bit_index{ index % _BITSET_SIZE };
-
-			bitsets[bitset_index].set(bit_index);
-
-			if (bitsets[bitset_index].all()) {
-				indices.erase(bitset_index);
-			}
-
-			construct(&_data[index], std::move(args)...);
-
-			++_size;
-		}
-
-		size_t free_index() {
-			if (indices.empty()) {
-				expand(2 * _capacity);
-			}
-
-			size_t bitset_index{ *indices.begin() };
-			size_t index{ static_cast<size_t>(std::countr_zero(~bitsets[bitset_index].to_ullong())) };
-
-			index += bitset_index * _BITSET_SIZE;
-
-			return index;
-		}
-
-		template<class... Args>
-		void construct(T* address, Args&&... args) {
-			allocator_traits::construct(allocator, address, std::move(args)...);
-		}
-
-		void destroy(T* address) {
-			allocator_traits::destroy(allocator, address);
+			return  chunk_index * CHUNK_SIZE + bit_index;
 		}
 	};
 
