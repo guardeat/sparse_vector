@@ -2,9 +2,7 @@
 
 #include <map>
 #include <bitset>
-#include <vector>
 #include <bit>
-#include <compare>
 
 namespace Byte {
 
@@ -55,8 +53,13 @@ namespace Byte {
 
 		sparse_vector_iterator& operator=(const sparse_vector_iterator&) = default;
 
-		reference operator*() const { return _elements[_index]; }
-		pointer operator->() const { return _elements + _index; }
+		reference operator*() const { 
+			return _elements[_index]; 
+		}
+
+		pointer operator->() const {
+			return _elements + _index; 
+		}
 
 		sparse_vector_iterator& operator++() {
 			next_index();
