@@ -171,16 +171,16 @@ namespace Byte {
 			allocator_traits::deallocate(_alloc, _elements, _capacity);
 		}
 
-		[[maybe_unused]] size_t push(const reference value) {
+		size_t push(const reference value) {
 			return emplace(value);
 		}
 
-		[[maybe_unused]] size_t push(value_type&& value) {
+		size_t push(value_type&& value) {
 			return emplace(std::move(value));
 		}
 
 		template<typename... Args>
-		[[maybe_unused]] size_t emplace(Args&&... args) {
+		size_t emplace(Args&&... args) {
 			if (_size == _capacity) {
 				reserve(_capacity * 2);
 			}
