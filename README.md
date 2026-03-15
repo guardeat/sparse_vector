@@ -1,6 +1,6 @@
 # sparse_vector
 
-A C++ sparse vector with O(1) insertion, erasure, and stable index reuse. Elements are stored in a flat array; erased slots are tracked with a bitset-based free list and reused on the next insertion.
+A container with O(1) insertion, erasure, and stable index reuse. Elements are stored in a flat array; erased slots are tracked with a bitset-based free list and reused on the next insertion.
 
 ## Features
 
